@@ -46,7 +46,7 @@ hex = "0.4"
 base64 = "0.22"
 thiserror = "2"
 
-# KWT (KDL Web Token) — vendored from https://github.com/TheMapleseed/KWT with a chacha20poly1305 feature fix for 0.10.
+# KWT — path dependency on an in-tree copy of https://github.com/TheMapleseed/KWT (not crates.io); includes a chacha20poly1305 0.10 fix.
 kwt = { path = "crates/kwt" }
 
 clap = { version = "4", features = ["derive"], optional = true }

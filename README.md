@@ -10,7 +10,7 @@ The goal is a **small, self-contained process** in the container: no distro root
 |------|------|
 | **`Dockerfile`** | Multi-stage **musl** → **`FROM scratch`**, copies `rustic/` sources |
 | **`directions.txt`** | Notes on static / scratch-friendly Rust stacks |
-| **`rustic/`** | Cargo package: `src/`, `Cargo.toml`, `rust-toolchain.toml`, `examples/`, vendored **`rustic/crates/kwt`** |
+| **`rustic/`** | Cargo package: `src/`, `Cargo.toml`, `rust-toolchain.toml`, `examples/`, and **`kwt` via `path = "crates/kwt"`** (in-repo copy of [KWT](https://github.com/TheMapleseed/KWT), **not** the crates.io registry) |
 
 Run **`cargo`** / **`rustup`** from **`rustic/`** unless noted.
 
