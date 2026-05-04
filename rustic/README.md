@@ -9,7 +9,8 @@
 - **Image trust payload** (`image_trust` in the signed JSON): optional binding of **runtime OCI digest**, **WASM image digest**, and **web/DOM bundle digest**; see `src/artifacts/envelope.rs`.
 - **Startup:** if `IMAGE_TRUST_ENVELOPE` is set, the binary verifies the signature, optionally compares **`IMAGE_TRUST_RUNTIME_DIGEST`** / **`CONTAINER_IMAGE_DIGEST`** to `image_trust.runtime_image_digest_sha256`, and optionally checks on-disk files when **`IMAGE_TRUST_STRICT_FILES=1`**.
 - **Callers:** `GET /.well-known/rustic-image-trust.json` returns the **same signed JSON** your WASM, browser, or API gateway can verify with your org public key **before** trusting this stack.
-- **Access control:** when **`IMAGE_TRUST_API_TOKEN`** is set, routes under **`/v1/protected/*`** require `Authorization: Bearer <token>` or `X-Image-Trust-Token: <token>`.
+- **Access control (KWT):** prefer **[KWT](https://github.com/TheMapleseed/KWT)** — compact, always-encrypted tokens (v1: XChaCha20-Poly1305 + HKDF). Set **`IMAGE_TRUST_KWT_MASTER_KEY`** to 64 hex chars (32-byte master key) and send **`Authorization: KWT <v1…token>`** or **`X-KWT: <token>`** on `/v1/protected/*`. Audience defaults to **`rustic`**; override with **`IMAGE_TRUST_KWT_AUDIENCE`**. Issue tokens with the `kwt` crate (`KwtToken::issue`) using the same key.
+- **Legacy static gate:** if the KWT master key is **not** set, optional **`IMAGE_TRUST_API_TOKEN`** still enables `Bearer` / `X-Image-Trust-Token` (shared secret only).
 
 ## Layout (scalable / concurrent)
 

@@ -17,6 +17,7 @@ RUN apt-get update \
 
 RUN rustup target add x86_64-unknown-linux-musl
 
+COPY rustic/crates ./crates
 COPY rustic/src ./src
 
 RUN mkdir -m 1777 /tmp
@@ -38,6 +39,8 @@ COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/rustic /rustic
 # ENV IMAGE_TRUST_RUNTIME_DIGEST=sha256:...
 # ENV IMAGE_TRUST_STRICT_FILES=1
 # ENV IMAGE_TRUST_API_TOKEN=...
+# ENV IMAGE_TRUST_KWT_MASTER_KEY=<64-hex-char master key>
+# ENV IMAGE_TRUST_KWT_AUDIENCE=rustic
 
 USER 10001:10001
 

@@ -1,0 +1,1 @@
+Vendored copy of [TheMapleseed/KWT](https://github.com/TheMapleseed/KWT) `kwt-rs` with a `chacha20poly1305 0.10` dependency fix (the upstream `xchacha20poly1305` feature flag was removed on crates.io). Track upstream for security audits and merges.

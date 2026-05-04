@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use mimalloc::MiMalloc;
 use rustic::artifacts;
 use rustic::http;
+use rustic::kwt_access;
 use rustic::state::AppState;
 use rustic::telemetry;
 use tracing::{error, info};
@@ -27,7 +28,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     telemetry::init_tracing();
 
     let attestation = artifacts::verify_on_startup_from_env()?;
-    let state = AppState::new(attestation);
+    let kwt = kwt_access::kwt_access_from_env()?;
+    let state = AppState::new(attestation, kwt);
 
     let port: u16 = std::env::var("PORT")
         .ok()

@@ -5,6 +5,7 @@
 pub mod artifacts;
 pub mod dns;
 pub mod http;
+pub mod kwt_access;
 pub mod outbound;
 pub mod shutdown;
 pub mod state;
