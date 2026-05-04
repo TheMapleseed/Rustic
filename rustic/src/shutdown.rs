@@ -1,7 +1,7 @@
 use tracing::info;
 
 #[cfg(unix)]
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 
 /// Waits for SIGTERM or SIGINT so `docker stop` and Ctrl+C drain in-process work cleanly.
 pub async fn wait_for_shutdown() {

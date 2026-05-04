@@ -1060,34 +1060,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "linuxless-rust-framework"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64",
- "chrono",
- "chrono-tz",
- "clap",
- "hex",
- "hickory-resolver",
- "mimalloc",
- "p256",
- "rand_core 0.6.4",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
 name = "litemap"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1561,6 +1533,34 @@ name = "rustc-hash"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94300abf3f1ae2e2b8ffb7b58043de3d399c73fa6f4b73826402a5c457614dbe"
+
+[[package]]
+name = "rustic"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64",
+ "chrono",
+ "chrono-tz",
+ "clap",
+ "hex",
+ "hickory-resolver",
+ "mimalloc",
+ "p256",
+ "rand_core 0.6.4",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "webpki-roots 0.26.11",
+]
 
 [[package]]
 name = "rustls"

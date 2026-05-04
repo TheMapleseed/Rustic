@@ -1,21 +1,19 @@
-//! CLI for **ECDSA P-256** artifact manifests: `sign`, `verify`, `sha256`, `keygen`.
-//! Build: `cargo build --release --features artifact-tool --bin artifact-tool`
+//! **rustic-tool** — ECDSA P-256 envelope CLI: `sign`, `verify`, `sha256`, `keygen`.
+//! `cargo build --release --features rustic-tool --bin rustic-tool`
 
 use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use linuxless_rust_framework::artifacts::{
-    sign_payload_pem_pkcs8, verify_envelope_pem, ArtifactPayload,
-};
 use p256::ecdsa::SigningKey;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use rand_core::OsRng;
+use rustic::artifacts::{ArtifactPayload, sign_payload_pem_pkcs8, verify_envelope_pem};
 use sha2::{Digest, Sha256};
 
 #[derive(Parser)]
-#[command(name = "artifact-tool")]
-#[command(about = "ECDSA P-256 artifact manifest: sign, verify, sha256, keygen")]
+#[command(name = "rustic-tool")]
+#[command(about = "Rustic ECDSA P-256 image-trust envelopes: sign, verify, sha256, keygen")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -23,7 +21,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Create an envelope JSON from a payload JSON + PKCS#8 EC private key PEM.
+    /// Create a signed envelope JSON from payload JSON + PKCS#8 EC private key PEM.
     Sign {
         #[arg(long)]
         payload: PathBuf,
@@ -34,7 +32,7 @@ enum Commands {
         #[arg(long)]
         public_key_id: Option<String>,
     },
-    /// Verify an envelope with a SPKI / PKCS#8 public key PEM (`BEGIN PUBLIC KEY`).
+    /// Verify an envelope with a SPKI public key PEM (`BEGIN PUBLIC KEY`).
     Verify {
         #[arg(long)]
         envelope: PathBuf,
@@ -46,7 +44,7 @@ enum Commands {
         #[arg(long)]
         file: PathBuf,
     },
-    /// Generate a random P-256 private key (PKCS#8 PEM) and write matching public key PEM.
+    /// Generate a random P-256 PKCS#8 PEM private key and matching public key PEM.
     Keygen {
         #[arg(long)]
         private_out: PathBuf,
@@ -79,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let json = fs::read_to_string(&envelope)?;
             let pem = fs::read_to_string(&public_key)?;
             verify_envelope_pem(&json, &pem)?;
-            eprintln!("OK: signature verifies");
+            eprintln!("OK: ECDSA P-256 signature verifies");
         }
         Commands::Sha256 { file } => {
             let bytes = fs::read(&file)?;

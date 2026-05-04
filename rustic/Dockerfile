@@ -29,15 +29,17 @@ RUN cargo build --release --target x86_64-unknown-linux-musl
 FROM scratch
 
 COPY --from=builder /tmp /tmp
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/linuxless-rust-framework /linuxless-rust-framework
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/rustic /rustic
 
-# Optional: ECDSA P-256 signed artifact envelope (native / wasm / image digest) verified at startup.
-# Build with: cargo run --features artifact-tool --bin artifact-tool -- keygen ...
-# COPY artifact-envelope.json /artifact-envelope.json
-# COPY artifact-public.pem /artifact-public.pem
-# ENV ARTIFACT_VERIFY_ENVELOPE=/artifact-envelope.json
-# ENV ARTIFACT_VERIFY_PUBLIC_KEY_PATH=/artifact-public.pem
-# ENV ARTIFACT_VERIFY_STRICT_FILES=1
+# Optional: ECDSA P-256 **Rustic** image-trust envelope + runtime digest binding.
+# `cargo build --release --features rustic-tool --bin rustic-tool` then sign / verify.
+# COPY rustic-envelope.json /rustic-envelope.json
+# COPY rustic-public.pem /rustic-public.pem
+# ENV IMAGE_TRUST_ENVELOPE=/rustic-envelope.json
+# ENV IMAGE_TRUST_PUBLIC_KEY_PATH=/rustic-public.pem
+# ENV IMAGE_TRUST_RUNTIME_DIGEST=sha256:...   # from registry / build attestation
+# ENV IMAGE_TRUST_STRICT_FILES=1
+# ENV IMAGE_TRUST_API_TOKEN=...               # gates /v1/protected/* when set
 
 USER 10001:10001
 
@@ -45,4 +47,4 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-ENTRYPOINT ["/linuxless-rust-framework"]
+ENTRYPOINT ["/rustic"]

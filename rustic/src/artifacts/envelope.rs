@@ -1,8 +1,16 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const ENVELOPE_FORMAT: &str = "artifact-envelope-v1";
+/// Current Rustic signed envelope discriminator (ECDSA P-256 over canonical JSON payload).
+pub const ENVELOPE_FORMAT: &str = "rustic-image-trust-envelope-v1";
+/// Earlier experimental format — still accepted when verifying.
+pub const ENVELOPE_FORMAT_LEGACY: &str = "artifact-envelope-v1";
 pub const SIG_ALG_P256: &str = "ecdsa-p256-sha256";
+
+#[must_use]
+pub fn envelope_format_supported(format: &str) -> bool {
+    format == ENVELOPE_FORMAT || format == ENVELOPE_FORMAT_LEGACY
+}
 
 #[derive(Debug, Error)]
 pub enum ArtifactVerifyError {

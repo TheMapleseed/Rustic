@@ -1,15 +1,14 @@
-//! Entry point: global allocator, tracing, Axum server, graceful shutdown on SIGTERM/SIGINT.
+//! Rustic binary: mimalloc, rustls crypto provider, **ECDSA P-256** image-trust verification, concurrent warm-up, Axum.
+#![forbid(unsafe_code)]
+
 use std::net::SocketAddr;
 
-use linuxless_rust_framework::artifacts;
 use mimalloc::MiMalloc;
+use rustic::artifacts;
+use rustic::http;
+use rustic::state::AppState;
+use rustic::telemetry;
 use tracing::{error, info};
-
-mod app;
-mod dns;
-mod outbound;
-mod shutdown;
-mod time_info;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -25,9 +24,10 @@ async fn main() {
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-    app::init_tracing();
+    telemetry::init_tracing();
 
-    artifacts::verify_on_startup_from_env()?;
+    let attestation = artifacts::verify_on_startup_from_env()?;
+    let state = AppState::new(attestation);
 
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -35,15 +35,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .unwrap_or(8080);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    time_info::log_sample_timezone();
-    dns::log_sample_resolution().await;
-    outbound::log_https_smoke().await;
+    // Concurrent warm-up: DNS, HTTPS smoke, and time sample do not need to be sequential.
+    let ((), (), ()) = tokio::join!(
+        async {
+            rustic::time_info::log_sample_timezone();
+        },
+        rustic::dns::log_sample_resolution(),
+        rustic::outbound::log_https_smoke(),
+    );
 
-    let router = app::router();
+    let router = http::router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(%addr, "listening");
 
-    let shutdown = shutdown::wait_for_shutdown();
+    let shutdown = rustic::shutdown::wait_for_shutdown();
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown)
         .await?;

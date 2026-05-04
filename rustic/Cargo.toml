@@ -1,20 +1,18 @@
 [package]
-name = "linuxless-rust-framework"
+name = "rustic"
 version = "0.1.0"
-edition = "2021"
-description = "Pure-Rust FROM scratch template: musl, rustls, ECDSA P-256 artifact manifests (native/wasm/images)."
+edition = "2024"
+rust-version = "1.85"
+description = "Rustic: scratch-ready Rust runtime with rustls, ECDSA P-256 image trust, and concurrent Axum stack."
 license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-# Heap without relying on glibc malloc in minimal images
 mimalloc = { version = "0.1", default-features = false }
 
-# TLS stack + Mozilla trust roots baked into the binary
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std"] }
 webpki-roots = "0.26"
 
-# Async runtime, TCP, signals (PID 1 / docker stop)
 tokio = { version = "1", features = [
     "macros",
     "rt-multi-thread",
@@ -23,27 +21,23 @@ tokio = { version = "1", features = [
     "time",
 ] }
 
-# HTTP server (incoming); terminate TLS at your edge unless you add rustls server config
 axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace"] }
 
-# Structured logs → stdout/stderr (required in scratch: no shell, no files)
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
-# Outgoing HTTPS without OpenSSL
 reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls-webpki-roots",
 ] }
 
-# Pure-Rust DNS path when you cannot rely on NSS / resolv.conf (optional wiring in `dns`)
 hickory-resolver = { version = "0.25", features = ["tokio", "system-config"] }
 
-# Timezones without /usr/share/zoneinfo in the image
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
 
-# ECDSA P-256 (NIST ECC) signatures over SHA-256 for artifact manifests (native, wasm, OCI image digests).
+# ECDSA P-256 (NIST ECC) over SHA-256 — image trust envelopes, WASM/DOM bundle digests, OCI runtime binding.
 p256 = { version = "0.13", features = ["ecdsa", "pem", "std", "pkcs8"] }
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
@@ -52,23 +46,21 @@ hex = "0.4"
 base64 = "0.22"
 thiserror = "2"
 
-# Optional CLI: sign manifests in CI / locally (not required in minimal scratch runtime).
 clap = { version = "4", features = ["derive"], optional = true }
 rand_core = { version = "0.6", features = ["getrandom"], optional = true }
 
 [features]
 default = []
-# Builds `artifact-tool` for `sign`, `verify`, `sha256`, `keygen`.
-artifact-tool = ["dep:clap", "dep:rand_core"]
+rustic-tool = ["dep:clap", "dep:rand_core"]
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
 tower = { version = "0.5", features = ["util"] }
 
 [[bin]]
-name = "artifact-tool"
-path = "src/bin/artifact_tool.rs"
-required-features = ["artifact-tool"]
+name = "rustic-tool"
+path = "src/bin/rustic_tool.rs"
+required-features = ["rustic-tool"]
 
 [profile.release]
 opt-level = "z"

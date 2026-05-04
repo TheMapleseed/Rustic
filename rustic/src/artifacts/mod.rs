@@ -1,16 +1,17 @@
-//! **ECDSA P-256** signed manifests for **OCI / container image trust**, optional **WASM** and **web (DOM) bundle** digests,
-//! and **caller-verifiable** attestations exposed over HTTP (`/.well-known/...`).
+//! **ECDSA P-256 (NIST ECC)** signed envelopes for **OCI / container image trust**, optional **WASM** and **web (DOM) bundle**
+//! digests, and **caller-verifiable** attestations (`GET /.well-known/rustic-image-trust.json`).
 //!
-//! Deployers inject the **runtime image digest** at rollout; the process refuses to start if the signed policy
-//! does not match the environment (foothold against wrong images). Gateways or in-browser WASM can fetch the
-//! attestation JSON and verify the same signature with your org public key before trusting this stack.
+//! Deployers inject **`IMAGE_TRUST_RUNTIME_DIGEST`** at rollout; if the signed payload includes
+//! `image_trust.runtime_image_digest_sha256`, startup fails on mismatch (wrong image / supply-chain break).
+//! Gateways or browser WASM verify the **same ECDSA** signature over the canonical JSON using your org public key.
 
 mod envelope;
 mod p256_sig;
 
 pub use envelope::{
-    normalize_sha256_hex, ArtifactEntry, ArtifactKind, ArtifactPayload, ArtifactVerifyError,
-    Envelope, ImageTrustClaims, SignatureRecord,
+    ArtifactEntry, ArtifactKind, ArtifactPayload, ArtifactVerifyError, ENVELOPE_FORMAT,
+    ENVELOPE_FORMAT_LEGACY, Envelope, ImageTrustClaims, SignatureRecord, envelope_format_supported,
+    normalize_sha256_hex,
 };
 pub use p256_sig::{sign_payload_pem_pkcs8, verify_envelope_pem};
 

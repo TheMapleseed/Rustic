@@ -1,9 +1,11 @@
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
 use p256::pkcs8::DecodePublicKey;
 
-use super::envelope::{ArtifactVerifyError, Envelope, ENVELOPE_FORMAT, SIG_ALG_P256};
+use super::envelope::{
+    ArtifactVerifyError, ENVELOPE_FORMAT, Envelope, SIG_ALG_P256, envelope_format_supported,
+};
 
 /// Verifies at least one **ECDSA P-256 SHA-256** DER signature over the canonical payload JSON.
 pub fn verify_envelope_pem(
@@ -11,7 +13,7 @@ pub fn verify_envelope_pem(
     public_key_pem: &str,
 ) -> Result<(), ArtifactVerifyError> {
     let env: Envelope = serde_json::from_str(envelope_json)?;
-    if env.format != ENVELOPE_FORMAT {
+    if !envelope_format_supported(&env.format) {
         return Err(ArtifactVerifyError::UnsupportedFormat(env.format));
     }
 
@@ -37,8 +39,8 @@ pub fn verify_envelope_pem(
     Err(ArtifactVerifyError::NoValidSignature)
 }
 
-use p256::ecdsa::signature::Signer;
 use p256::ecdsa::SigningKey;
+use p256::ecdsa::signature::Signer;
 use p256::pkcs8::DecodePrivateKey;
 
 /// Signs canonical payload bytes with a PKCS#8 PEM **EC private key** (P-256).

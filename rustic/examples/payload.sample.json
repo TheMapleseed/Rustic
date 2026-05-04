@@ -1,0 +1,28 @@
+{
+  "manifest_version": 2,
+  "artifacts": [
+    {
+      "name": "app.wasm",
+      "type": "wasm",
+      "sha256": "REPLACE_WITH_64_CHAR_LOWER_HEX_SHA256_OF_WASM_BYTES"
+    },
+    {
+      "name": "rustic",
+      "type": "native",
+      "sha256": "REPLACE_WITH_64_CHAR_LOWER_HEX_SHA256_OF_STATIC_BINARY",
+      "path": "/rustic"
+    },
+    {
+      "name": "oci-runtime-image",
+      "type": "container_image",
+      "sha256": "REPLACE_WITH_CONFIG_OR_ROOTFS_DIGEST_HEX"
+    }
+  ],
+  "image_trust": {
+    "runtime_image_digest_sha256": "REPLACE_WITH_RUNTIME_IMAGE_ROOT_DIGEST_64_HEX",
+    "runtime_oci_reference": "ghcr.io/your-org/rustic",
+    "wasm_image_digest_sha256": null,
+    "web_dom_bundle_digest_sha256": null,
+    "policy_id": "prod-tier-1"
+  }
+}
