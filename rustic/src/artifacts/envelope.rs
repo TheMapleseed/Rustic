@@ -3,6 +3,16 @@ use thiserror::Error;
 
 /// Current Rustic signed envelope discriminator (ECDSA P-256 over canonical JSON payload).
 pub const ENVELOPE_FORMAT: &str = "rustic-image-trust-envelope-v1";
+
+/// Discriminator for [`KwtAttestationWellKnown`] served at `/.well-known/rustic-image-trust.json` when the deployer uses a KWT attestation file.
+pub const KWT_ATTESTATION_WELL_KNOWN_FORMAT: &str = "rustic-image-trust-kwt-v1";
+
+/// JSON wrapper for **`GET /.well-known/rustic-image-trust.json`** when attestation is a [KWT](https://github.com/TheMapleseed/KWT) token. Callers decrypt with the same master key used at issuance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KwtAttestationWellKnown {
+    pub format: String,
+    pub kwt: String,
+}
 /// Earlier experimental format — still accepted when verifying.
 pub const ENVELOPE_FORMAT_LEGACY: &str = "artifact-envelope-v1";
 pub const SIG_ALG_P256: &str = "ecdsa-p256-sha256";
@@ -49,6 +59,16 @@ pub enum ArtifactVerifyError {
         "manifest requires runtime_image_digest_sha256 but IMAGE_TRUST_RUNTIME_DIGEST (or CONTAINER_IMAGE_DIGEST) is not set"
     )]
     MissingRuntimeDigestEnv,
+    #[error(
+        "IMAGE_TRUST_KWT_MASTER_KEY must be set when IMAGE_TRUST_ENVELOPE is a KWT attestation"
+    )]
+    MissingKwtMasterKeyForAttestation,
+    #[error("KWT attestation validated but token has no embedded artifact manifest (claim opcode 0x70)")]
+    MissingArtifactManifestInKwt,
+    #[error("KWT: {0}")]
+    Kwt(String),
+    #[error("KWT key environment: {0}")]
+    KwtEnv(#[from] crate::kwt_access::KwtEnvError),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

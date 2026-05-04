@@ -11,6 +11,7 @@
 //   0x40  roles       — uint8 count + uint8[] enum values
 //   0x50  scopes      — uint8 count + uint8[] enum values
 //   0x60  jti         — 16 raw bytes (UUID v7, big-endian)
+//   0x70  manifest    — varint len + UTF-8 JSON (Rustic image-trust ArtifactPayload)
 //   0x80  END         — no following bytes; required final opcode
 //
 // Canonicalization rules enforced by the encoder:
@@ -36,7 +37,12 @@ const OP_AUDIENCE: u8 = 0x30;
 const OP_ROLES: u8 = 0x40;
 const OP_SCOPES: u8 = 0x50;
 const OP_JTI: u8 = 0x60;
+/// Optional opaque UTF-8 payload (e.g. minified JSON) — see Rustic `ArtifactPayload`.
+const OP_ARTIFACT_MANIFEST_JSON: u8 = 0x70;
 const OP_END: u8 = 0x80;
+
+/// Maximum UTF-8 length for [`Claims::artifact_manifest_json`].
+pub const MAX_ARTIFACT_MANIFEST_JSON_BYTES: usize = 512 * 1024;
 
 // ---------------------------------------------------------------------------
 // Domain types
@@ -148,6 +154,9 @@ pub struct Claims {
 
     /// JWT ID — UUID v7 for replay detection.
     pub jti: Uuid,
+
+    /// Minified JSON of a Rustic [`ArtifactPayload`](https://github.com/TheMapleseed/Rustic) when used as an image-trust attestation.
+    pub artifact_manifest_json: Option<String>,
 }
 
 impl Claims {
@@ -172,6 +181,19 @@ impl Claims {
         }
         if self.audience.is_empty() {
             return Err(KwtError::MissingClaim("audience".into()));
+        }
+        if let Some(ref m) = self.artifact_manifest_json {
+            if m.is_empty() {
+                return Err(KwtError::InvalidClaim(
+                    "artifact_manifest_json must not be empty when set".into(),
+                ));
+            }
+            if m.len() > MAX_ARTIFACT_MANIFEST_JSON_BYTES {
+                return Err(KwtError::InvalidClaim(format!(
+                    "artifact_manifest_json exceeds {} bytes",
+                    MAX_ARTIFACT_MANIFEST_JSON_BYTES
+                )));
+            }
         }
         Ok(())
     }
@@ -275,6 +297,14 @@ pub fn encode(claims: &Claims) -> Result<Vec<u8>, KwtError> {
     buf.push(OP_JTI);
     buf.extend_from_slice(claims.jti.as_bytes());
 
+    // 0x70  optional artifact manifest JSON
+    if let Some(ref manifest) = claims.artifact_manifest_json {
+        buf.push(OP_ARTIFACT_MANIFEST_JSON);
+        let b = manifest.as_bytes();
+        encode_varint(b.len(), &mut buf);
+        buf.extend_from_slice(b);
+    }
+
     // 0x80  END marker — mandatory
     buf.push(OP_END);
 
@@ -304,6 +334,7 @@ pub fn decode(data: &[u8]) -> Result<Claims, KwtError> {
     let mut roles: Vec<Role> = Vec::new();
     let mut scopes: Vec<Scope> = Vec::new();
     let mut jti: Option<Uuid> = None;
+    let mut artifact_manifest_json: Option<String> = None;
     let mut end_seen = false;
 
     while pos < data.len() {
@@ -383,6 +414,24 @@ pub fn decode(data: &[u8]) -> Result<Claims, KwtError> {
                 pos += 16;
             }
 
+            OP_ARTIFACT_MANIFEST_JSON => {
+                if artifact_manifest_json.is_some() {
+                    return Err(KwtError::PayloadError(
+                        "duplicate artifact_manifest_json opcode".into(),
+                    ));
+                }
+                let (len, consumed) = decode_varint(&data[pos..])?;
+                pos += consumed;
+                require_bytes(data, pos, len, "artifact_manifest_json")?;
+                if len > MAX_ARTIFACT_MANIFEST_JSON_BYTES {
+                    return Err(KwtError::PayloadError("artifact_manifest_json too large".into()));
+                }
+                let s = std::str::from_utf8(&data[pos..pos + len])
+                    .map_err(|_| KwtError::PayloadError("artifact_manifest_json is not UTF-8".into()))?;
+                artifact_manifest_json = Some(s.to_owned());
+                pos += len;
+            }
+
             OP_END => {
                 end_seen = true;
                 // END must be the last byte
@@ -417,6 +466,7 @@ pub fn decode(data: &[u8]) -> Result<Claims, KwtError> {
         roles,
         scopes,
         jti: jti.ok_or_else(|| KwtError::MissingClaim("jti".into()))?,
+        artifact_manifest_json,
     };
 
     claims.validate_structure()?;
@@ -459,6 +509,7 @@ pub fn new_claims(subject: &str, audience: &str, ttl_seconds: u32) -> Claims {
         roles: Vec::new(),
         scopes: Vec::new(),
         jti: Uuid::now_v7(),
+        artifact_manifest_json: None,
     }
 }
 
@@ -479,6 +530,7 @@ mod tests {
             roles: vec![Role::Admin, Role::Editor],
             scopes: vec![Scope::ReadStats, Scope::WriteLogs],
             jti: Uuid::now_v7(),
+            artifact_manifest_json: None,
         }
     }
 
@@ -495,6 +547,19 @@ mod tests {
         assert_eq!(decoded.roles, claims.roles);
         assert_eq!(decoded.scopes, claims.scopes);
         assert_eq!(decoded.jti, claims.jti);
+        assert_eq!(decoded.artifact_manifest_json, claims.artifact_manifest_json);
+    }
+
+    #[test]
+    fn artifact_manifest_json_round_trip() {
+        let mut claims = sample_claims();
+        claims.artifact_manifest_json = Some(r#"{"manifest_version":1,"artifacts":[]}"#.into());
+        let encoded = encode(&claims).expect("encode failed");
+        let decoded = decode(&encoded).expect("decode failed");
+        assert_eq!(
+            decoded.artifact_manifest_json,
+            Some(r#"{"manifest_version":1,"artifacts":[]}"#.into())
+        );
     }
 
     #[test]
@@ -515,7 +580,7 @@ mod tests {
     #[test]
     fn rejects_out_of_order_opcodes() {
         let claims = sample_claims();
-        let mut encoded = encode(&claims).expect("encode failed");
+        let encoded = encode(&claims).expect("encode failed");
 
         // Swap bytes to manufacture an out-of-order opcode
         // Find expires_at (0x21) and subject (0x10) positions and swap a byte

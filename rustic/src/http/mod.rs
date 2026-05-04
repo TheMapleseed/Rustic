@@ -51,7 +51,7 @@ async fn well_known_attestation(
             .into_response(),
         None => (
             StatusCode::NOT_FOUND,
-            "Rustic image-trust envelope not configured (set IMAGE_TRUST_ENVELOPE after signing)",
+            "Rustic image-trust not configured (set IMAGE_TRUST_ENVELOPE: ECDSA JSON or KWT attestation)",
         )
             .into_response(),
     }

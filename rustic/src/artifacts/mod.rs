@@ -1,16 +1,18 @@
-//! **ECDSA P-256 (NIST ECC)** signed envelopes for **OCI / container image trust**, optional **WASM** and **web (DOM) bundle**
-//! digests, and **caller-verifiable** attestations (`GET /.well-known/rustic-image-trust.json`).
+//! **Image trust** for OCI / WASM / web bundles: either **ECDSA P-256** signed JSON envelopes *or*
+//! **[KWT](https://github.com/TheMapleseed/KWT)** attestations (encrypted claims with an embedded `ArtifactPayload` JSON),
+//! plus **`GET /.well-known/rustic-image-trust.json`** for callers.
 //!
-//! Deployers inject **`IMAGE_TRUST_RUNTIME_DIGEST`** at rollout; if the signed payload includes
+//! Deployers inject **`IMAGE_TRUST_RUNTIME_DIGEST`** at rollout; if the manifest includes
 //! `image_trust.runtime_image_digest_sha256`, startup fails on mismatch (wrong image / supply-chain break).
-//! Gateways or browser WASM verify the **same ECDSA** signature over the canonical JSON using your org public key.
+//! ECDSA callers verify with your org public key; KWT callers decrypt with the shared master key.
 
 mod envelope;
 mod p256_sig;
 
 pub use envelope::{
     ArtifactEntry, ArtifactKind, ArtifactPayload, ArtifactVerifyError, ENVELOPE_FORMAT,
-    ENVELOPE_FORMAT_LEGACY, Envelope, ImageTrustClaims, SignatureRecord, envelope_format_supported,
+    ENVELOPE_FORMAT_LEGACY, Envelope, ImageTrustClaims, KwtAttestationWellKnown,
+    KWT_ATTESTATION_WELL_KNOWN_FORMAT, SignatureRecord, envelope_format_supported,
     normalize_sha256_hex,
 };
 pub use p256_sig::{sign_payload_pem_pkcs8, verify_envelope_pem};
@@ -21,33 +23,73 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
-/// Verifies envelope signature, optional file bindings, and **runtime OCI digest** vs signed `image_trust`.
-/// Returns the envelope JSON to serve at `/.well-known/linuxless-image-trust.json` when configured.
+use crate::kwt_access;
+
+/// Verifies image-trust attestation (ECDSA JSON **or** KWT), optional file bindings, and **runtime OCI digest** vs `image_trust`.
+/// Returns the body for `GET /.well-known/rustic-image-trust.json` when configured.
 pub fn verify_on_startup_from_env() -> Result<Option<Arc<str>>, ArtifactVerifyError> {
     let path = match envelope_path_from_env() {
         Some(p) => p,
         _ => return Ok(None),
     };
 
-    let pem = read_pem_from_env()?;
     let strict_files =
         env_flag("IMAGE_TRUST_STRICT_FILES") || env_flag("ARTIFACT_VERIFY_STRICT_FILES");
 
-    let json = std::fs::read_to_string(&path).map_err(|e| ArtifactVerifyError::Io {
+    let file_body = std::fs::read_to_string(&path).map_err(|e| ArtifactVerifyError::Io {
         path: path.clone(),
         source: e,
     })?;
 
-    verify_envelope_pem(&json, &pem)?;
-    info!(path, "image trust envelope signature OK (ECDSA P-256)");
-
-    verify_runtime_digest_if_claimed(&json)?;
-
-    if strict_files {
-        verify_file_bindings(&json, &pem)?;
+    if let Some(token) = extract_kwt_token_from_envelope_file(file_body.trim()) {
+        let Some(master_key) = kwt_access::kwt_master_key_from_env()? else {
+            return Err(ArtifactVerifyError::MissingKwtMasterKeyForAttestation);
+        };
+        let audience = kwt_access::kwt_audience_from_env();
+        let validated =
+            kwt::token::KwtToken::validate(&token, &master_key, audience.as_str()).map_err(|e| {
+                ArtifactVerifyError::Kwt(format!("{e}"))
+            })?;
+        let Some(ref manifest_json) = validated.claims.artifact_manifest_json else {
+            return Err(ArtifactVerifyError::MissingArtifactManifestInKwt);
+        };
+        let mut payload: ArtifactPayload = serde_json::from_str(manifest_json)?;
+        payload.sort_artifacts();
+        verify_runtime_digest_if_claimed_payload(payload.image_trust.as_ref())?;
+        if strict_files {
+            verify_file_bindings_payload(&payload)?;
+        }
+        info!(path, "image trust KWT attestation OK");
+        let well = KwtAttestationWellKnown {
+            format: KWT_ATTESTATION_WELL_KNOWN_FORMAT.to_string(),
+            kwt: token,
+        };
+        return Ok(Some(Arc::from(serde_json::to_string(&well)?)));
     }
 
-    Ok(Some(Arc::from(json)))
+    let pem = read_pem_from_env()?;
+    verify_envelope_pem(&file_body, &pem)?;
+    info!(path, "image trust envelope signature OK (ECDSA P-256)");
+
+    verify_runtime_digest_if_claimed(&file_body)?;
+
+    if strict_files {
+        verify_file_bindings(&file_body, &pem)?;
+    }
+
+    Ok(Some(Arc::from(file_body)))
+}
+
+/// If `content` is a raw `v1.*` KWT string or JSON `{"kwt":"v1....",...}`, returns the token.
+#[must_use]
+pub fn extract_kwt_token_from_envelope_file(content: &str) -> Option<String> {
+    let c = content.trim();
+    if c.starts_with("v1.") {
+        return Some(c.to_string());
+    }
+    let v: serde_json::Value = serde_json::from_str(c).ok()?;
+    let t = v.get("kwt")?.as_str()?;
+    (t.starts_with("v1.")).then(|| t.to_string())
 }
 
 fn envelope_path_from_env() -> Option<String> {
@@ -97,13 +139,19 @@ fn env_flag(name: &str) -> bool {
 /// If the signed payload includes `image_trust.runtime_image_digest_sha256`, the runtime must supply a matching digest.
 fn verify_runtime_digest_if_claimed(json: &str) -> Result<(), ArtifactVerifyError> {
     let env: Envelope = serde_json::from_str(json)?;
-    let Some(ref it) = env.payload.image_trust else {
+    verify_runtime_digest_if_claimed_payload(env.payload.image_trust.as_ref())
+}
+
+fn verify_runtime_digest_if_claimed_payload(
+    image_trust: Option<&ImageTrustClaims>,
+) -> Result<(), ArtifactVerifyError> {
+    let Some(it) = image_trust else {
         return Ok(());
     };
-    let Some(ref expected_raw) = it.runtime_image_digest_sha256 else {
+    let Some(expected_raw) = it.runtime_image_digest_sha256.as_ref() else {
         return Ok(());
     };
-    let expected = normalize_sha256_hex(expected_raw).ok_or_else(|| {
+    let expected = normalize_sha256_hex(expected_raw.as_str()).ok_or_else(|| {
         ArtifactVerifyError::Crypto(
             "invalid image_trust.runtime_image_digest_sha256 (want 64 hex or sha256:...)".into(),
         )
@@ -140,7 +188,11 @@ pub fn verify_file_bindings(json: &str, public_key_pem: &str) -> Result<(), Arti
     let env: Envelope = serde_json::from_str(json)?;
     let mut payload = env.payload;
     payload.sort_artifacts();
+    verify_file_bindings_payload(&payload)
+}
 
+/// Same as [`verify_file_bindings`] without ECDSA (e.g. KWT attestation already authenticated the manifest).
+pub fn verify_file_bindings_payload(payload: &ArtifactPayload) -> Result<(), ArtifactVerifyError> {
     for a in &payload.artifacts {
         if let Some(ref rel) = a.path {
             let p = Path::new(rel);
@@ -205,5 +257,34 @@ pub fn warn_if_client_envelope_invalid(
     };
     if let Err(e) = verify_bytes_against_envelope(json, pem, artifact_name, bytes) {
         warn!(%e, "client artifact envelope verification failed");
+    }
+}
+
+#[cfg(test)]
+mod extract_kwt_tests {
+    use super::extract_kwt_token_from_envelope_file;
+
+    #[test]
+    fn extracts_raw_v1_token() {
+        let t = "v1.abc.def\n";
+        assert_eq!(
+            extract_kwt_token_from_envelope_file(t).as_deref(),
+            Some("v1.abc.def")
+        );
+    }
+
+    #[test]
+    fn extracts_from_json_wrapper() {
+        let j = r#"{"format":"rustic-image-trust-kwt-v1","kwt":"v1.nonce.cipher"}"#;
+        assert_eq!(
+            extract_kwt_token_from_envelope_file(j).as_deref(),
+            Some("v1.nonce.cipher")
+        );
+    }
+
+    #[test]
+    fn ecdsa_envelope_not_kwt() {
+        let j = r#"{"format":"rustic-image-trust-envelope-v1","payload":{},"signatures":[]}"#;
+        assert_eq!(extract_kwt_token_from_envelope_file(j), None);
     }
 }
