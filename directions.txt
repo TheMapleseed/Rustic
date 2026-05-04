@@ -1,0 +1,247 @@
+Yes, they absolutely exist. In fact, for many high-security or high-performance projects, the "pure Rust" (or nearly pure) stacks are now the preferred choice over standard C-based libraries like OpenSSL.
+To run a container without a Linux image, you need these libraries because they allow your binary to handle its own networking and encryption rather than relying on the "Host" OS to provide them via shared libraries (.so or .dll).
+
+1. TLS and SSL: rustls
+The gold standard for "no-Linux" or minimal-distro Rust is rustls. Unlike OpenSSL, which is written in C and Assembly, rustls is written in 100% memory-safe Rust.
+* Why it's better for containers: It is significantly smaller and more secure. It doesn't require a C-runtime to be present in your Docker image.
+* The "Crypto Provider" catch: While rustls handles the logic, it needs a "provider" for the math (hashing/encryption). You have two main choices:
+    * aws-lc-rs: (Highly recommended) Uses AWS's high-performance crypto library. It is often faster than OpenSSL but requires a C compiler during build time.
+    * ring: A classic choice, very stable, but slightly more restrictive.
+* Comparison: As of 2026, rustls with aws-lc-rs actually outperforms OpenSSL in many handshake benchmarks.
+
+2. General Cryptography: The RustCrypto Ecosystem
+If you aren't doing full TLS but just need AES, SHA-256, or RSA, the RustCrypto project provides "Pure Rust" implementations of almost every primitive.
+* AES: aes crate.
+* Hashing: sha2, sha3, blake3 crates.
+* RSA/Elliptic Curve: rsa and k256 crates.
+Because these are pure Rust, they compile perfectly into a static binary that can run on a scratch (empty) Docker image with zero external dependencies.
+
+3. Network Stacks: smoltcp
+This is where it gets interesting. Normally, your Rust app uses the Linux Kernel's network stack (the "Standard Library" std::net). If you want to bypass the Linux kernel entirely (e.g., for bare-metal or extremely hardened containers), you use smoltcp.
+* What it is: A standalone TCP/IP stack written in Rust.
+* Use Case: You would use this if you were building a "Unikernel"—a binary that is its own operating system.
+* Reality Check: For 99% of Docker users, you still use the std::net stack because Docker (even in a "no image" container) still provides a virtual network interface that the binary can talk to via standard system calls.
+
+4. How to use them in your Cargo.toml
+If you want to build a "distroless-ready" app, you'll usually swap out the default native-tls (which uses OpenSSL) for rustls.
+Example for a web client (reqwest):
+Ini, TOML
+
+[dependencies]
+# Disable default-features to remove the OpenSSL dependency
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+Summary of the "No-Linux" Stack
+Component	Pure Rust / Minimal Alternative
+TLS / SSL	rustls
+Randomness	getrandom
+Certs	webpki-roots (bakes Mozilla's certs into your binary)
+Network	std::net (standard) or smoltcp (extreme)
+By using rustls and webpki-roots, your binary becomes a "self-contained universe." You can drop it into a FROM scratchDockerfile, and it will be able to make secure HTTPS calls to the outside world without a single Linux file present in the container.
+Are you building an API that needs to handle incoming traffic, or a tool that mainly makes outgoing requests?
+To build a "Pure Rust" platform within a Docker container—one that essentially acts as its own operating system or a highly minimal environment—you need more than just the networking and SSL libraries. You need to account for everything a standard OS usually handles "for free."
+Here are the critical components required to achieve a truly self-contained, OS-less Rust container:
+1. Root Certificate Store (webpki-roots)
+Even if you use a pure Rust TLS library like rustls, your application won't know which servers to trust by default. Standard Linux images have a /etc/ssl/certs folder. In a FROM scratch container, that folder is empty.
+* The Requirement: Use the webpki-roots crate. It bakes the Mozilla root certificates directly into your binary.
+* Alternative: Manually COPY the CA certificates from your build stage into the final image.
+2. Timezone Data (chrono-tz or tz-rs)
+Standard library functions that handle local time usually look for files in /usr/share/zoneinfo. Without an image, these files don't exist, and your app might crash or default to UTC when trying to determine the local time.
+* The Requirement: If your app needs to understand timezones (e.g., "What time is it in Tokyo?"), use chrono-tz to embed the IANA timezone database into your binary.
+3. A Static C Runtime (MUSL)
+Most Rust code eventually makes a system call to the "C Library" (libc). Standard Rust uses glibc (dynamic), which expects to find files on the disk.
+* The Requirement: You must compile against the musl target (x86_64-unknown-linux-musl). This statically links the C standard library, ensuring your binary doesn't look for libc.so.6 at runtime.
+4. Logging and Environment Variables
+In an empty container, there is no shell, no systemd, and no /var/log.
+* The Requirement: Use a crate like tracing or env_logger and ensure you log strictly to stdout/stderr. Docker will capture these streams and handle them.
+* Note: Since there's no .bashrc or shell, you must pass configuration via Docker's ENV instructions or a mounted config.toml.
+5. The "Unikernel" Option (The Ultimate Pure Rust)
+If you want to go beyond a "static binary in a container" and actually have the binary act as its own kernel, you look at Hermit (formerly HermitCore).
+* What it is: A Rust-based unikernel. It links the operating system functions (memory management, scheduling) directly into your app.
+* The Stack: You use smoltcp for networking and hermit-abi to interface with the hardware (or the Docker/KVM hypervisor).
+Summary Checklist for a "Pure Rust" Scratch Container
+Requirement	Solution
+Executability	Compile for the musl target.
+Trust/HTTPS	rustls + webpki-roots.
+Time/Dates	chrono + chrono-tz.
+File System	None (Use include_bytes! to bake assets into the binary).
+Identity	Run as a non-root UID (defined in the Dockerfile USER command).
+
+One final tip: If your binary needs to resolve domain names (like google.com), a scratch container might fail because it lacks a /etc/resolv.conf. Usually, Docker injects this file automatically, but for complex networking, you might need a pure Rust DNS resolver like hickory-dns (formerly trust-dns) to avoid relying on the host's getaddrinfo.
+Are you planning to include any static assets (HTML, images, or config files) inside this container, or will it be 100% code?
+Understood. If the goal is simply to eliminate the Linux base image (like Alpine or Debian) from your Docker layers while still running on a standard Docker host, you are looking for a Static Native Execution strategy.
+To make this "Pure Rust" platform work without a single byte of Alpine or Ubuntu in your final image, you need to solve for the three pillars of OS dependencies:
+1. The Global Memory Allocator
+By default, Rust uses the system's malloc. On Alpine, this is musl; on Ubuntu, it’s glibc. If you have no image, you have no allocator provided by the OS.
+* The Requirement: You must use mimalloc or jemalloc.
+* Why: These are Rust crates that bundle the allocation logic inside your binary. Your app will manage its own heap memory without asking a Linux library to do it.
+2. The Name Service Switch (NSS)
+In Alpine, /etc/nsswitch.conf and libnss tell the OS how to turn google.com into an IP. Without an image, your binary will look for these files and find nothing.
+* The Requirement: Use hickory-dns (with the reproducible feature).
+* Why: It is a pure Rust DNS resolver. Instead of the binary saying "Hey Linux, what is the IP for this URL?", the binary sends the UDP packets itself.
+3. Execution Entrypoint (The "Init" Problem)
+Normally, an OS image handles signal forwarding (like SIGTERM when you stop a container). A raw Rust binary in a scratch container is PID 1.
+* The Requirement: You need to handle Unix signals inside your Rust code using a crate like tokio::signal.
+* Why: If you don't, docker stop will feel "laggy" because your binary won't know it's being asked to shut down gracefully; Docker will eventually have to "kill -9" it.
+
+The "Zero-Image" Checklist
+To move from "I use Alpine" to "I use nothing," your Cargo.toml and build process should look like this:
+Component	Pure Rust / Static Solution
+Standard Library	Compiled with target = "x86_64-unknown-linux-musl"
+Memory Allocator	mimalloc or static-alloc
+TLS/SSL	rustls + webpki-roots
+DNS	hickory-dns (avoiding getaddrinfo)
+Container Base	FROM scratch
+Why this is better than Alpine
+Alpine is small (~5MB), but it still has a shell (sh), a package manager (apk), and various base utilities that are common targets for scanners. By using a Scratch-based Rust Platform, you gain:
+1. Zero CVEs: Scanners like Snyk or Trivy will return 0 results because there are no OS packages to exploit.
+2. Immutability: There is no /bin/sh. Even if an attacker finds a bug in your code, they cannot "spawn a shell" because there is no shell to spawn.
+3. Performance: No overhead from dynamic linking; the CPU executes your code immediately upon container start.
+How to Build It
+You don't need a complex Unikernel for this. You just need a Multi-stage Dockerfile:
+Dockerfile
+
+# Stage 1: The Build Environment (This is the only place Linux exists)
+FROM rust:1.75-slim as builder
+RUN apt-get update && apt-get install -y musl-tools
+RUN rustup target add x86_64-unknown-linux-musl
+WORKDIR /app
+COPY . .
+# We build a fully static binary
+RUN cargo build --release --target x86_64-unknown-linux-musl
+
+# Stage 2: The Final Platform (Zero Linux Image)
+FROM scratch
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/my_app /my_app
+# Optional: Copy certs if you didn't use webpki-roots
+# COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+USER 1000
+ENTRYPOINT ["/my_app"]
+Does your project require access to a filesystem (like writing logs or a database file), or is it a stateless service?
+Yes, if you are committing to the FROM scratch lifestyle, there are a few hidden "gotchas" that usually blindside developers the first time they deploy. Because you've stripped away the entire OS, your application is operating in a complete vacuum.
+Here is the advanced advice for making sure your scratch-based Rust container is production-ready:
+1. The "No /tmp Directory" Crash
+Many Rust libraries silently assume that the /tmp directory exists. For example, if you are using a web framework (like Axum or Actix) and it handles a multipart form upload, it might try to buffer the file to /tmp. In a scratch container, this will trigger an immediate panic.
+* The Fix: Create the /tmp directory in your builder stage and copy it over, setting the right permissions.
+Dockerfile
+
+# In the builder stage:
+RUN mkdir -m 1777 /tmp
+
+# In the scratch stage:
+COPY --from=builder /tmp /tmp
+2. Docker Healthchecks Won't Work (Natively)
+If you use docker-compose or Docker Swarm, you are probably used to writing things like HEALTHCHECK CMD curl -f http://localhost:8080/health || exit 1.
+* The Problem: curl does not exist in scratch. sh does not exist. The command will fail.
+* The Fix for Kubernetes: Do nothing. Kubernetes executes HTTP probes from the kubelet (outside the container), so it doesn't need curl inside the container.
+* The Fix for Docker: If you absolutely need a Docker-native healthcheck, you have to build a second, tiny Rust binary just for pinging your app, copy it into the container, and use that as your CMD.
+3. You Cannot Use Usernames
+In a standard Dockerfile, it's best practice to drop root privileges using USER nobody.
+* The Problem: scratch does not have an /etc/passwd file, so the Docker daemon has no idea what the string "nobody" means. It will fail to start.
+* The Fix: You must use numeric User IDs (UIDs) and Group IDs (GIDs).
+Dockerfile
+
+# 10001 is an arbitrary, unprivileged number
+USER 10001:10001 
+4. Shrink the Binary to the Absolute Minimum
+Since your entire container size is dictated entirely by your binary, you should optimize your Cargo.toml for size rather than just speed. Add a release profile to your Cargo.toml:
+Ini, TOML
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Enable Link-Time Optimization (removes dead code)
+codegen-units = 1   # Slower compile times, but smaller/faster binary
+strip = true        # Automatically strip symbols from the binary
+panic = "abort"     # Removes panic unwinding infrastructure (saves a lot of space)
+Note: Only use panic = "abort" if you are okay with the app immediately crashing on a panic rather than unwinding the stack gracefully.
+5. Be Careful with Local::now()
+As touched on earlier, if you use the chrono crate and call Local::now(), it tries to read /etc/localtime. If it can't find it, it defaults to UTC. If your application relies on the server's local timezone for logging or scheduling, you will need to copy the tzdata from your builder:
+Dockerfile
+
+COPY --from=builder /usr/share/zoneinfo/America/Chicago /etc/localtime
+By addressing the /tmp directory, using numeric UIDs, and optimizing your release profile, your resulting image will be bulletproof, highly secure, and likely under 10 megabytes.
+Are you deploying this into a Kubernetes environment, or directly onto standard Docker/Docker Compose hosts?
+Taking the leap to a pure scratch environment is incredibly rewarding for security, performance, and minimalism, but it absolutely strips away the safety nets developers are used to. Operating without an OS means you have to anticipate system-level behaviors that are usually taken for granted.
+If you are committing to this path, here are the most painful operational hurdles you should expect to deal with and how to solve them:
+1. Abysmal Docker Build Times (The Cache Problem)
+Rust compilation is famously slow. In a standard Docker build, if you just do COPY . . followed by cargo build, Docker will invalidate the entire build cache every time you change a single line of your application code. This means Cargo will re-download and re-compile all 200+ of your dependencies from scratch, turning a 5-second local build into a 10-minute Docker build.
+* The Fix: You essentially have to use cargo-chef. It is a tool designed specifically for Docker layer caching in Rust. It creates a "recipe" of your dependencies, builds them in a separate Docker layer, and then copies your application source code. This ensures dependencies are only recompiled when your Cargo.toml actually changes.
+2. The "Blind" Debugging Reality
+When your app crashes in an Alpine or Debian container, your first instinct is to run docker exec -it <container_id> sh to look at the logs, check network connectivity with ping, or inspect files. In a scratch container, none of these commands exist. You are completely blind.
+* The Fix: You must over-index on Structured Logging (using crates like tracing and tracing-subscriber). Every piece of state you might need to debug a crash must be routed to stdout.
+* For Kubernetes: If you use K8s, familiarize yourself with Ephemeral Containers. This feature allows you to attach a temporary debugging container (like an Ubuntu image with a shell) to your running scratch pod so they share the same network and process space.
+3. Hidden Dynamic Dependencies (dlopen Traps)
+Compiling with the musl target successfully links the C standard library at build time. However, some Rust crates rely on libraries that use dlopen to load .so (shared object) files dynamically at runtime. Common offenders include SQLite extensions, certain audio/video encoders, or cryptographic hardware modules.
+* The Fix: If your app panics on startup with an error about a missing .so file despite being "statically linked," you have a rogue dependency. You will have to either find a pure-Rust alternative crate or use a Distroless image instead of scratch.
+4. Cross-Compilation Nightmares (Especially for Mac Users)
+If you develop on an Apple Silicon Mac (ARM64) but are deploying to a standard AWS/Linux cloud server (AMD64), you have to cross-compile your binary. Doing this with musl is notoriously difficult because you need a specialized C-linker for the target architecture (e.g., x86_64-linux-musl-gcc), not just the Rust target.
+* The Fix: Do not try to manage the linkers manually. Use Docker buildx combined with a specialized builder image (like messense/rust-musl-cross), or use the cross CLI tool, which handles spinning up the correct cross-compilation containers under the hood.
+5. Filesystem Setup and Permissions
+As mentioned earlier, you should run your container as a non-root user (e.g., USER 10001). But what if your application needs to write a file, like a local SQLite database at /data/db.sqlite?
+The scratch image does not have a /data folder. Because there is no shell, you cannot run mkdir /data or chown at runtime to give user 10001 permission to write there.
+* The Fix: You must create the directory structure and set the permissions in your builder stage, then explicitly copy those empty directories over to the scratch stage:
+Dockerfile
+
+# In Builder Stage
+RUN mkdir /data && chown 10001:10001 /data
+
+# In Scratch Stage
+COPY --from=builder --chown=10001:10001 /data /data
+
+Are you building this CI/CD pipeline on GitHub Actions/GitLab, or are you mostly building these Docker images locally right now?
+You are absolutely right about the deployment phase. Once that image is built and pushed to your container registry, your hosting platform (like Kubernetes, ECS, or Nomad) will essentially cache that image on its worker nodes. From there, horizontally scaling—or "sharding"—spins up new instances almost instantaneously. A 5MB scratch image boots in milliseconds.
+However, there is a crucial distinction to make between deployment time (runtime scaling) and CI/CD build time(pipeline execution), which is where the pain points usually lie.
+The GitHub Actions Reality
+You are correct that the image itself is the final artifact, but we have to look at what happens before that artifact is created.
+Every time you open a Pull Request or merge to your main branch, GitHub Actions spins up a completely fresh, empty virtual machine. If you don't implement caching in your GitHub Actions workflow, Cargo will re-download the registry and re-compile every single dependency (like tokio, rustls, serde, etc.) from scratch on every single commit.
+While you might not care about waiting 15 minutes for a final production build, you will care if every tiny code tweak in a PR takes 15-20 minutes to pass the CI checks. Furthermore, GitHub Actions bills by the minute (after your free tier), so compiling pure Rust from scratch on every push will burn through your quota rapidly.
+How to optimize this in GitHub Actions
+Since you are running this in a CI loop, you don't necessarily need cargo-chef. Instead, you can leverage GitHub Actions' native caching mechanisms to make your pipeline efficient:
+* Docker Buildx Caching: If you are building the Docker image directly in the pipeline, use the docker/build-push-action and configure the cache-from and cache-to parameters to use the type=gha (GitHub Actions) cache backend. This saves your Docker layers directly to GitHub's cache.
+* Native Rust Caching: If your pipeline runs cargo test or cargo clippy before building the Docker image, use the Swatinem/rust-cache action. It intelligently caches your target/ directory and Cargo registry between workflow runs.
+By implementing those, your CI loop will drop from 15+ minutes down to 1-2 minutes for subsequent pushes, and then your hosting platform will handle the lightning-fast deployment of the resulting artifact.
+What hosting platform are you deploying this to once GitHub Actions finishes the build?
+You assume correctly. The exact same principles apply, but the mechanics of how you configure the caching in GitLab CI/CD are slightly different.
+Because GitLab uses its own runner architecture (often relying on Docker-in-Docker or Kubernetes executors), you have to explicitly define your cache paths rather than relying on a pre-built plugin like you would in GitHub Actions.
+Here is how you handle the Rust and Docker caching hurdles in GitLab:
+1. Native Rust Caching (The cache Keyword)
+In .gitlab-ci.yml, you don't use a marketplace action. Instead, you use GitLab's native cache block to save the Cargo registry and your compiled dependencies between pipeline runs.
+If you don't do this, the GitLab runner will download all your crates and compile them from scratch on every push.
+Example GitLab Configuration:
+YAML
+
+variables:
+  # Tell Cargo to store its data inside the project directory so GitLab can cache it
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
+cache:
+  key:
+    files:
+      - Cargo.lock
+  paths:
+    - .cargo/registry/index/
+    - .cargo/registry/cache/
+    - .cargo/git/db/
+    - target/
+  policy: pull-push
+Note: By tying the cache key to Cargo.lock, GitLab knows to automatically invalidate and rebuild the cache if you add or update a dependency.
+2. Docker Layer Caching (The Registry Method)
+GitHub Actions has a specialized cache backend (type=gha), but in GitLab, the most robust way to cache Docker layers is to use your GitLab Container Registry to store the cache.
+When you run your docker build command in your pipeline, you tell Docker to pull previous layers from the registry to speed up the build, and then push the new cache layers back up.
+YAML
+
+build_image:
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build 
+      --cache-from $CI_REGISTRY_IMAGE:cache 
+      --tag $CI_REGISTRY_IMAGE:latest 
+      --tag $CI_REGISTRY_IMAGE:cache 
+      --file Dockerfile .
+    - docker push $CI_REGISTRY_IMAGE:latest
+    - docker push $CI_REGISTRY_IMAGE:cache
+3. The "Kaniko" Alternative
+If your GitLab runners are hosted on Kubernetes, you might not be able to use the docker build command at all due to security restrictions against Docker-in-Docker (DinD).
+In this case, GitLab pipelines heavily rely on Kaniko, a tool by Google that builds container images inside a standard, unprivileged container. Kaniko has built-in caching flags (--cache=true --cache-repo=...) that behave very similarly to Docker's registry caching, making it perfect for your multi-stage scratch builds.
+
+The end result is the same: you invest a little time writing your .gitlab-ci.yml to preserve the target/ directory and Docker layers, and your build times drop from 15 minutes down to 2 minutes, keeping your feedback loop fast.
+Are you running your own self-hosted GitLab Runners, or are you using the shared runners provided by GitLab.com?

@@ -1,0 +1,5 @@
+[toolchain]
+# rustup installs this channel automatically when you `cd` into this crate (or any rustup-aware tool opens it).
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
