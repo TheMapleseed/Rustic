@@ -3,7 +3,7 @@ name = "rustic"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Rustic: scratch-ready Rust runtime with rustls, ECDSA P-256 image trust, and concurrent Axum stack."
+description = "Rustic: scratch-ready container service — rustls, image trust (ECDSA/KWT), Axum."
 license = "MIT OR Apache-2.0"
 publish = false
 

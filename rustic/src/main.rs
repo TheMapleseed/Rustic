@@ -1,4 +1,4 @@
-//! Rustic binary: mimalloc, rustls crypto provider, **ECDSA** / **KWT** image-trust verification, concurrent warm-up, Axum.
+//! Rustic binary: **mimalloc**, rustls, **ECDSA** / **KWT** image-trust, concurrent warm-up, Axum.
 #![forbid(unsafe_code)]
 
 use std::net::SocketAddr;

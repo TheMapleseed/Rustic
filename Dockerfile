@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# Build from **repository root** (the Rustic monorepo): `docker build -t rustic .`
-# The Rust crate lives in `rustic/`; this file stays at the root beside `.git`.
+# Build from **repository root**: `docker build -t rustic .`
+# Static musl binary → FROM scratch (no distro rootfs). Sources in `rustic/`.
 
 FROM rust:bookworm AS builder
 
@@ -31,7 +31,7 @@ FROM scratch
 COPY --from=builder /tmp /tmp
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/rustic /rustic
 
-# Optional: ECDSA P-256 image-trust envelope + runtime digest (see rustic/README.md).
+# Optional: ECDSA P-256 image-trust envelope + runtime digest (see README.md).
 # COPY rustic-envelope.json /rustic-envelope.json
 # COPY rustic-public.pem /rustic-public.pem
 # ENV IMAGE_TRUST_ENVELOPE=/rustic-envelope.json
