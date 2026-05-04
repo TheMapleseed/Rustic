@@ -79,7 +79,7 @@ pub struct Envelope {
 }
 
 /// Binds the signed manifest to **this** running OCI image and optional WASM / web (DOM) bundles.
-/// Callers (browser WASM, API gateway, CI) fetch `/.well-known/linuxless-image-trust.json` and verify the same ECDSA envelope.
+/// Callers (browser WASM, API gateway, CI) fetch `/.well-known/rustic-image-trust.json` and verify (ECDSA or decrypt KWT).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ImageTrustClaims {
     /// Expected digest of the **runtime** OCI image (rootfs/config identity), 64-char lowercase hex (no `sha256:` prefix).
