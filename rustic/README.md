@@ -21,7 +21,7 @@
 | `src/main.rs` | Thin binary: `tokio::join!` for parallel warm-up (DNS / HTTPS smoke / time sample), then `axum::serve` |
 | `src/artifacts/` | ECDSA verify/sign, `ImageTrustClaims`, runtime digest checks |
 | `src/bin/rustic_tool.rs` | CLI: `cargo build --features rustic-tool --bin rustic-tool` → `sign`, `verify`, `sha256`, `keygen` |
-| `Dockerfile` | Multi-stage **musl** static build → `scratch`, entrypoint **`/rustic`** |
+| Root `Dockerfile` | At **repo root** (next to `.git`): multi-stage **musl** → `scratch`, entrypoint **`/rustic`** |
 | `rust-toolchain.toml` | **rustup** default: **stable**, `rustfmt`, `clippy` |
 
 ## Run locally
@@ -56,10 +56,15 @@ cargo build --release --features rustic-tool --bin rustic-tool
 
 ## Container
 
+From the **repository root** (parent of `rustic/`), not from inside `rustic/`:
+
 ```bash
+cd ..   # if you are currently in rustic/
 docker build -t rustic .
 docker run --rm -p 8080:8080 rustic
 ```
+
+If you only have the `rustic/` subtree without the root `Dockerfile`, clone the full [Rustic](https://github.com/TheMapleseed/Rustic) repo or copy the root `Dockerfile` and adjust `COPY` paths.
 
 ## CI
 
