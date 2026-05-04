@@ -1,4 +1,5 @@
-//! **Rustic** — minimal-container service template: **ECDSA P-256** or **[KWT](https://github.com/TheMapleseed/KWT)** image-trust manifests, Axum HTTP, shared state.
+//! **Rustic** — scratch-oriented service template: **ECDSA P-256** image-trust (`artifacts`),
+//! Axum HTTP (including **[KWT](https://crates.io/crates/kwt)** on `/v1/protected/*`), shared state.
 //!
 //! Crypto is **pure Rust** (`p256` / `rustls` + `aws-lc-rs`); no OpenSSL dependency.
 
