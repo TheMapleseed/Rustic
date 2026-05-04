@@ -1,5 +1,4 @@
-//! [KWT](https://github.com/TheMapleseed/KWT) (KDL Web Token) for `/v1/protected/*` and optional
-//! **image-trust attestation** files (`IMAGE_TRUST_ENVELOPE` may be a KWT token).
+//! [KWT](https://crates.io/crates/kwt) (KDL Web Token) for **`/v1/protected/*`** only.
 //! Clients send **`Authorization: KWT <token>`** or **`X-KWT`** — v1 tokens are **encrypted**
 //! (XChaCha20-Poly1305 + HKDF).
 
@@ -30,7 +29,7 @@ pub fn kwt_master_key_from_env() -> Result<Option<MasterKey>, KwtEnvError> {
     Ok(Some(master_key))
 }
 
-/// Expected audience for issued KWTs (attestation + API gate). Default **`rustic`**.
+/// Expected audience for issued KWTs (API gate). Default **`rustic`**.
 pub fn kwt_audience_from_env() -> String {
     std::env::var("IMAGE_TRUST_KWT_AUDIENCE").unwrap_or_else(|_| "rustic".into())
 }

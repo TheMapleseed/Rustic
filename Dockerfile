@@ -17,7 +17,6 @@ RUN apt-get update \
 
 RUN rustup target add x86_64-unknown-linux-musl
 
-COPY rustic/crates ./crates
 COPY rustic/src ./src
 
 RUN mkdir -m 1777 /tmp

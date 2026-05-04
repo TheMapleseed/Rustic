@@ -51,7 +51,7 @@ async fn well_known_attestation(
             .into_response(),
         None => (
             StatusCode::NOT_FOUND,
-            "Rustic image-trust not configured (set IMAGE_TRUST_ENVELOPE: ECDSA JSON or KWT attestation)",
+            "Rustic image-trust not configured (set IMAGE_TRUST_ENVELOPE to signed ECDSA envelope JSON)",
         )
             .into_response(),
     }
@@ -136,8 +136,8 @@ mod tests {
 
     #[tokio::test]
     async fn protected_accepts_kwt() {
-        let key = MasterKey::generate();
-        let mut claims = codec::new_claims("svc-test", "rustic", 3600);
+        let key = MasterKey::generate().unwrap();
+        let mut claims = codec::new_claims("svc-test", "rustic", 3600).unwrap();
         claims.roles.push(Role::Service);
         claims.scopes.push(Scope::Admin);
         let token = KwtToken::issue(&claims, &key).unwrap();

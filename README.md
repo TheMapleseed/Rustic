@@ -1,6 +1,6 @@
 # Rustic
 
-**Rustic** is a **Rust edition 2024** service template for **`FROM scratch`** containers: static **musl** binary, **rustls** + **aws-lc-rs**, **mimalloc**, structured logging, and a **concurrent** Axum stack with **image-trust** manifests — **ECDSA P-256** signed JSON and/or **[KWT](https://github.com/TheMapleseed/KWT)** encrypted attestations — so callers can verify what image and bundles they are talking to.
+**Rustic** is a **Rust edition 2024** service template for **`FROM scratch`** containers: static **musl** binary, **rustls** + **aws-lc-rs**, **mimalloc**, structured logging, and a **concurrent** Axum stack. **Image-trust** uses **ECDSA P-256** signed JSON for **`/.well-known/rustic-image-trust.json`**; **[`kwt` on crates.io](https://crates.io/crates/kwt)** powers **KWT** tokens for **`/v1/protected/*`** only.
 
 The goal is a **small, self-contained process** in the container: no distro rootfs, no shell — just your binary and what you explicitly copy in.
 
@@ -10,18 +10,16 @@ The goal is a **small, self-contained process** in the container: no distro root
 |------|------|
 | **`Dockerfile`** | Multi-stage **musl** → **`FROM scratch`**, copies `rustic/` sources |
 | **`directions.txt`** | Notes on static / scratch-friendly Rust stacks |
-| **`rustic/`** | Cargo package: `src/`, `Cargo.toml`, `rust-toolchain.toml`, `examples/`, and **`kwt` via `path = "crates/kwt"`** (in-repo copy of [KWT](https://github.com/TheMapleseed/KWT), **not** the crates.io registry) |
+| **`rustic/`** | Cargo package: `src/`, `Cargo.toml`, `rust-toolchain.toml`, `examples/`; **`kwt`** from [crates.io](https://crates.io/crates/kwt) ([repo](https://github.com/TheMapleseed/KWT)) |
 
 Run **`cargo`** / **`rustup`** from **`rustic/`** unless noted.
 
 ## Security model (image trust + KWT)
 
-- **ECDSA path (public verifiers):** **P-256** + **SHA-256** (DER signatures, Base64 in JSON), **`p256`** crate. Envelope formats: `rustic-image-trust-envelope-v1` (current); legacy `artifact-envelope-v1` still accepted on verify.
-- **KWT attestation path (symmetric):** `IMAGE_TRUST_ENVELOPE` may be a **`v1.…`** token or JSON `{"format":"rustic-image-trust-kwt-v1","kwt":"v1.…"}` with **`IMAGE_TRUST_KWT_MASTER_KEY`** (64 hex chars). Embeds minified **`ArtifactPayload`** JSON in the KWT payload. **`GET /.well-known/rustic-image-trust.json`** returns the JSON wrapper for KWT mode (see **`rustic-tool kwt-sign`**).
-- **KWT vs ECDSA on the wire:** Dense binary claims + **XChaCha20-Poly1305** + **HKDF** ([KWT](https://github.com/TheMapleseed/KWT)). Use **ECDSA** when verifiers only have a **public** key.
+- **ECDSA envelope (`IMAGE_TRUST_ENVELOPE`):** **P-256** + **SHA-256** (DER signatures, Base64 in JSON), **`p256`** crate. Formats: `rustic-image-trust-envelope-v1` (current); legacy `artifact-envelope-v1` still accepted on verify. **`GET /.well-known/rustic-image-trust.json`** serves the same signed JSON.
 - **Image trust payload:** optional **runtime OCI digest**, **WASM**, **web/DOM bundle** digests; see `rustic/src/artifacts/envelope.rs`.
-- **Startup:** with `IMAGE_TRUST_ENVELOPE`, verifies **ECDSA** or **KWT**, optional **`IMAGE_TRUST_RUNTIME_DIGEST`** / **`CONTAINER_IMAGE_DIGEST`**, optional **`IMAGE_TRUST_STRICT_FILES=1`**.
-- **Access control:** **`/v1/protected/*`** requires **KWT** (`Authorization: KWT …` or **`X-KWT`**). **`IMAGE_TRUST_KWT_MASTER_KEY`**; **`IMAGE_TRUST_KWT_AUDIENCE`** (default `rustic`).
+- **Startup:** with `IMAGE_TRUST_ENVELOPE`, verifies **ECDSA**, optional **`IMAGE_TRUST_RUNTIME_DIGEST`** / **`CONTAINER_IMAGE_DIGEST`**, optional **`IMAGE_TRUST_STRICT_FILES=1`**.
+- **KWT ([crate](https://crates.io/crates/kwt)):** used only for **`/v1/protected/*`** — **`Authorization: KWT …`** or **`X-KWT`**. Set **`IMAGE_TRUST_KWT_MASTER_KEY`** (64 hex); **`IMAGE_TRUST_KWT_AUDIENCE`** (default `rustic`). Issue tokens with `kwt::token::KwtToken::issue` from your own tooling or tests.
 
 ## Crate layout
 
@@ -31,7 +29,7 @@ Run **`cargo`** / **`rustup`** from **`rustic/`** unless noted.
 | `rustic/src/http/mod.rs` | Health, well-known attestation, `/v1/protected` + KWT gate |
 | `rustic/src/main.rs` | Binary: warm-up + `axum::serve` |
 | `rustic/src/artifacts/` | Image-trust verify/sign |
-| `rustic/src/bin/rustic_tool.rs` | `sign`, `verify`, `kwt-sign`, `sha256`, `keygen` |
+| `rustic/src/bin/rustic_tool.rs` | ECDSA `sign` / `verify`, `sha256`, `keygen` |
 | `rustic/rust-toolchain.toml` | **stable**, `rustfmt`, `clippy` |
 
 ## Run locally
@@ -69,16 +67,6 @@ cargo build --release --features rustic-tool --bin rustic-tool
 ```bash
 ./target/release/rustic-tool sign --payload examples/payload.sample.json --secret-key dev.key.pem --output rustic-envelope.json
 ./target/release/rustic-tool verify --envelope rustic-envelope.json --public-key dev.pub.pem
-```
-
-**KWT:**
-
-```bash
-./target/release/rustic-tool kwt-sign \
-  --payload examples/payload.sample.json \
-  --master-key-hex "<64 hex chars>" \
-  --audience rustic \
-  --output rustic-kwt-envelope.json
 ```
 
 ## Docker
