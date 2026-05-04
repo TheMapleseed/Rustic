@@ -54,10 +54,6 @@ Most Rust code eventually makes a system call to the "C Library" (libc). Standar
 In an empty container, there is no shell, no systemd, and no /var/log.
 * The Requirement: Use a crate like tracing or env_logger and ensure you log strictly to stdout/stderr. Docker will capture these streams and handle them.
 * Note: Since there's no .bashrc or shell, you must pass configuration via Docker's ENV instructions or a mounted config.toml.
-5. The "Unikernel" Option (The Ultimate Pure Rust)
-If you want to go beyond a "static binary in a container" and actually have the binary act as its own kernel, you look at Hermit (formerly HermitCore).
-* What it is: A Rust-based unikernel. It links the operating system functions (memory management, scheduling) directly into your app.
-* The Stack: You use smoltcp for networking and hermit-abi to interface with the hardware (or the Docker/KVM hypervisor).
 Summary Checklist for a "Pure Rust" Scratch Container
 Requirement	Solution
 Executability	Compile for the musl target.
