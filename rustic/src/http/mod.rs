@@ -1,6 +1,6 @@
 //! Axum router composition: public attestation + protected routes.
-//! Protected routes accept either **[KWT](https://github.com/TheMapleseed/KWT)** (`Authorization: KWT …`)
-//! when `IMAGE_TRUST_KWT_MASTER_KEY` is configured, or a legacy static **`IMAGE_TRUST_API_TOKEN`**.
+//! **`/v1/protected/*` uses [KWT](https://github.com/TheMapleseed/KWT) only** — set `IMAGE_TRUST_KWT_MASTER_KEY`
+//! (see `kwt_access`) or every protected request returns **401**.
 
 use axum::extract::Request;
 use axum::http::{StatusCode, header};
@@ -63,48 +63,25 @@ struct ProtectedStatus {
 }
 
 async fn protected_status() -> Json<ProtectedStatus> {
-    Json(ProtectedStatus {
-        access: "kwt-or-static-token-ok",
-    })
+    Json(ProtectedStatus { access: "kwt-ok" })
 }
 
-/// Prefer **KWT** when `AppState.kwt_access` is set; otherwise optional static `IMAGE_TRUST_API_TOKEN`.
+/// **KWT only:** valid token or **401**. Missing master key configuration → **401** on protected paths.
 async fn image_trust_access_gate(
     req: Request,
     next: Next,
     kwt_cfg: Option<Arc<KwtAccessConfig>>,
 ) -> Result<axum::response::Response, StatusCode> {
-    if let Some(cfg) = kwt_cfg.as_ref() {
-        let Some(token) = extract_kwt_credential(&req) else {
-            return Err(StatusCode::UNAUTHORIZED);
-        };
-        let _ = kwt::token::KwtToken::validate(token, &cfg.master_key, cfg.audience.as_str())
-            .map_err(|_| StatusCode::UNAUTHORIZED)?;
-        return Ok(next.run(req).await);
-    }
-
-    let Some(expected) = std::env::var("IMAGE_TRUST_API_TOKEN")
-        .ok()
-        .filter(|t| !t.is_empty())
-    else {
-        return Ok(next.run(req).await);
+    let Some(cfg) = kwt_cfg.as_ref() else {
+        return Err(StatusCode::UNAUTHORIZED);
     };
 
-    let ok = req
-        .headers()
-        .get("x-image-trust-token")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|s| s == expected.as_str())
-        || req
-            .headers()
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.strip_prefix("Bearer "))
-            .is_some_and(|s| s == expected.as_str());
-
-    if !ok {
+    let Some(token) = extract_kwt_credential(&req) else {
         return Err(StatusCode::UNAUTHORIZED);
-    }
+    };
+
+    let _ = kwt::token::KwtToken::validate(token, &cfg.master_key, cfg.audience.as_str())
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     Ok(next.run(req).await)
 }
@@ -141,6 +118,20 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn protected_requires_kwt_master_key() {
+        let app = router(AppState::new(None, None));
+        let res = app
+            .oneshot(
+                Request::get("/v1/protected/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

@@ -38,7 +38,6 @@ COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/rustic /rustic
 # ENV IMAGE_TRUST_PUBLIC_KEY_PATH=/rustic-public.pem
 # ENV IMAGE_TRUST_RUNTIME_DIGEST=sha256:...
 # ENV IMAGE_TRUST_STRICT_FILES=1
-# ENV IMAGE_TRUST_API_TOKEN=...
 # ENV IMAGE_TRUST_KWT_MASTER_KEY=<64-hex-char master key>
 # ENV IMAGE_TRUST_KWT_AUDIENCE=rustic
 

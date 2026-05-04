@@ -1,6 +1,6 @@
-//! Optional [KWT](https://github.com/TheMapleseed/KWT) (KDL Web Token) gate for `/v1/protected/*`.
-//! When `IMAGE_TRUST_KWT_MASTER_KEY` is set, clients send **`Authorization: KWT <token>`** (or `X-KWT`)
-//! instead of a static shared secret — tokens are **encrypted** (XChaCha20-Poly1305 + HKDF), not JWT-shaped.
+//! [KWT](https://github.com/TheMapleseed/KWT) (KDL Web Token) for `/v1/protected/*` only.
+//! Clients send **`Authorization: KWT <token>`** or **`X-KWT`** — v1 tokens are **encrypted**
+//! (XChaCha20-Poly1305 + HKDF). There is no shared-secret fallback.
 
 use kwt::crypto::MasterKey;
 use thiserror::Error;
@@ -18,7 +18,7 @@ pub enum KwtEnvError {
     BadKey,
 }
 
-/// Load KWT gate config from the environment. If the master key is unset, KWT auth is disabled.
+/// Load KWT gate config from the environment. If unset, the HTTP layer still rejects `/v1/protected/*` with **401**.
 pub fn kwt_access_from_env() -> Result<Option<KwtAccessConfig>, KwtEnvError> {
     let key_hex = match std::env::var("IMAGE_TRUST_KWT_MASTER_KEY") {
         Ok(s) if !s.is_empty() => s,
